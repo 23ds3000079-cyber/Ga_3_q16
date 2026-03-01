@@ -1,0 +1,60 @@
+name: IMDb Scraper - 23ds3000079
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Setup Python - 23ds3000079@ds.study.iitm.ac.in
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        pip install requests beautifulsoup4
+        
+    - name: Run scraper
+      run: |
+        python -c "
+import requests
+from bs4 import BeautifulSoup
+import json
+
+url = 'https://www.imdb.com/search/title/?user_rating=3.0,5.0&sort=user_rating,desc&count=25'
+headers = {'User-Agent': 'Mozilla/5.0'}
+response = requests.get(url, headers=headers)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+results = []
+for item in soup.select('.lister-item')[:25]:
+    try:
+        link = item.select_one('a[href*=\"/title/tt\"]')
+        imdb_id = link['href'].split('/title/')[1].split('/')[0] if link else ''
+        
+        title = item.select_one('h3 a').text if item.select_one('h3 a') else ''
+        
+        year_elem = item.select_one('.lister-item-year')
+        year = year_elem.text.strip('()I ') if year_elem else ''
+        
+        rating_elem = item.select_one('.ratings-bar strong')
+        rating = rating_elem.text if rating_elem else ''
+        
+        if imdb_id and title and year and rating:
+            results.append({
+                'id': imdb_id,
+                'title': title,
+                'year': year,
+                'rating': rating
+            })
+    except:
+        pass
+
+print(json.dumps(results, indent=2))
+print(f'\n✅ Found {len(results)} movies')
+"
