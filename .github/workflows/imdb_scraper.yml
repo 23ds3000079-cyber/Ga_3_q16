@@ -1,60 +1,102 @@
-name: IMDb Scraper - 23ds3000079
+name: IMDb Rating Scraper - 23ds3000079
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0'
   push:
     branches: [ main ]
 
 jobs:
-  scrape:
+  scrape-imdb:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Setup Python - 23ds3000079@ds.study.iitm.ac.in
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+      - name: Checkout repository
+        uses: actions/checkout@v4
         
-    - name: Install dependencies
-      run: |
-        pip install requests beautifulsoup4
-        
-    - name: Run scraper
-      run: |
-        python -c "
+      - name: Setup Python - 23ds3000079@ds.study.iitm.ac.in
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 lxml
+          
+      - name: Create IMDb scraper script
+        run: |
+          cat > imdb_scraper.py << 'EOF'
 import requests
 from bs4 import BeautifulSoup
 import json
+import time
 
-url = 'https://www.imdb.com/search/title/?user_rating=3.0,5.0&sort=user_rating,desc&count=25'
-headers = {'User-Agent': 'Mozilla/5.0'}
-response = requests.get(url, headers=headers)
-soup = BeautifulSoup(response.text, 'html.parser')
+def scrape_imdb():
+    url = "https://www.imdb.com/search/title/?user_rating=3.0,5.0&sort=user_rating,desc&count=25"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    results = []
+    containers = soup.find_all('div', class_='lister-item mode-advanced')
+    
+    for container in containers[:25]:
+        try:
+            # Get IMDb ID
+            link = container.find('a', href=True)
+            if link and '/title/' in link['href']:
+                imdb_id = link['href'].split('/title/')[1].split('/')[0]
+            else:
+                continue
+            
+            # Get title
+            title_elem = container.find('h3', class_='lister-item-header').find('a')
+            title = title_elem.text.strip() if title_elem else ''
+            
+            # Get year
+            year_elem = container.find('span', class_='lister-item-year')
+            year = year_elem.text.strip('()I ') if year_elem else ''
+            
+            # Get rating
+            rating_elem = container.find('div', class_='ratings-bar')
+            if rating_elem:
+                rating = rating_elem.find('strong')
+                rating = rating.text.strip() if rating else ''
+            else:
+                rating = ''
+            
+            if imdb_id and title and year and rating:
+                results.append({
+                    "id": imdb_id,
+                    "title": title,
+                    "year": year,
+                    "rating": rating
+                })
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
+    
+    # Output JSON
+    print(json.dumps(results, indent=2))
+    
+    # Save to file
+    with open('imdb_movies.json', 'w') as f:
+        json.dump(results, f, indent=2)
+    
+    print(f"\n✅ Found {len(results)} movies")
 
-results = []
-for item in soup.select('.lister-item')[:25]:
-    try:
-        link = item.select_one('a[href*=\"/title/tt\"]')
-        imdb_id = link['href'].split('/title/')[1].split('/')[0] if link else ''
+if __name__ == "__main__":
+    scrape_imdb()
+EOF
+          
+      - name: Run IMDb scraper
+        run: python imdb_scraper.py
         
-        title = item.select_one('h3 a').text if item.select_one('h3 a') else ''
-        
-        year_elem = item.select_one('.lister-item-year')
-        year = year_elem.text.strip('()I ') if year_elem else ''
-        
-        rating_elem = item.select_one('.ratings-bar strong')
-        rating = rating_elem.text if rating_elem else ''
-        
-        if imdb_id and title and year and rating:
-            results.append({
-                'id': imdb_id,
-                'title': title,
-                'year': year,
-                'rating': rating
-            })
-    except:
-        pass
-
-print(json.dumps(results, indent=2))
-print(f'\n✅ Found {len(results)} movies')
-"
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: imdb-movies
+          path: imdb_movies.json
